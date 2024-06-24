@@ -17,8 +17,6 @@ from scipy.optimize import newton
 
 import redis
 
-import utils_helper2 as uh2
-
 app = Flask(__name__)
 cors = CORS(app, resources={r"/*": {"origins": "*"}})
 
@@ -26,8 +24,7 @@ cors = CORS(app, resources={r"/*": {"origins": "*"}})
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 # Read contracts from file
-the_date = redis_client.get("option_contracts_date").decode('utf-8')
-#all_option_contracts = uh.get_contracts_by_expiry_prefix_and_date(the_date, 'ETH', 'contracts.json')
+#the_date = redis_client.get("option_contracts_date").decode('utf-8')
 
 
 def bs_call(S, K, T, sigma):
@@ -55,7 +52,7 @@ def implied_volatility_put(S, K, T, P):
 @app.route('/get_selected_date', methods=['GET'])
 def get_selected_date():
     print("#get_selected_date request", request, datetime.now())
-    option_contracts_date = json.loads(redis_client.get("option_contracts_date").decode('utf-8'))
+    option_contracts_date = uh2.get_current_expiry_date_from_redis()
     dt_strirng = datetime.fromtimestamp(int(option_contracts_date)/1000).strftime("%Y %m %d")
     response = {
         "status": "ok",
@@ -66,44 +63,45 @@ def get_selected_date():
     }
     return jsonify(response)
 
-@app.route('/get_all_filtered_read_only', methods=['GET'])
-def get_all_filtered_read_only():
-    print("#get_all_redis_date_contracts request", request, datetime.now())
+@app.route('/get_all_filtered_read_file_only_symbols_only', methods=['GET'])
+def get_all_filtered_read_file_only_symbols_only():
+    print("#get_all_filtered_read_file_only_symbols_only request", request, datetime.now())
     
-    resp = uh2.get_all_filtered_read_only()
+    resp = uh2.get_all_filtered_read_file_only_symbols_only()
+    print(resp)
+    #eth_keys=eth_keys.sort()
+    response = {
+        "status": "ok",
+        "eth_keys": resp,
+        "dt": datetime.now(),
+        "command": 'get_all_filtered_read_file_only_symbols_only'
+    }
+
+    #print(response)
+    return jsonify(response)
+
+@app.route('/get_all_redis_date_contracts_from_file', methods=['GET'])
+def get_all_redis_date_contracts_from_file():
+    print("#get_all_redis_date_contracts_from_file request", request, datetime.now())
+    
+    redis_date = uh2.get_current_expiry_date_from_redis()
+
+    resp = uh2.get_contracts_by_expiry_date_and_prefix_name_only(redis_date, "ETH")
+
     print(resp)
     #eth_keys=eth_keys.sort()
     response = {
         "status": "ok",
         "eth_keys": resp,
         "dt":datetime.now(),
-        "command":'get_all_filtered_read_only'
+        "command":'get_all_filtered_read_file_only_symbols_only'
     }
 
     #print(response)
     return jsonify(response)
 
-@app.route('/get_all_in_the_money_redis_date_contracts', methods=['GET'])
-def get_all_in_the_money_redis_date_contracts():
-    print("#get_all_in_the_money_redis_date_contracts request", request, datetime.now())
-    
-
-    with open("contracts_filtered_by_date_in_the_money.json", 'r') as file: resp = json.load(file)['optionSymbols']
-
-    print(resp)
-    #eth_keys=eth_keys.sort()
-    response = {
-        "status": "ok",
-        "eth_keys": resp,
-        "dt":datetime.now(),
-        "command":'get_all_in_the_money_redis_date_contracts'
-    }
-
-    #print(response)
-    return jsonify(response)
-
-@app.route('/get_all_dates', methods=['GET'])
-def get_all_dates():
+@app.route('/get_all_expiry_dates', methods=['GET'])
+def get_all_expiry_dates():
     print("#get_all_dates request", request, datetime.now())
     #date = redis_client.get("option_contracts_date").decode('utf-8')
     expiry_dates = uh2.get_all_expiry_dates()
@@ -113,7 +111,7 @@ def get_all_dates():
     response={
             'data':expiry_dates,
             'dt':datetime.now(),
-            'command':'get_all_dates'
+            'command':'get_all_expiry_dates'
         }
     return jsonify(response)
 
