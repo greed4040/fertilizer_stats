@@ -118,47 +118,56 @@ def periodic_check(ws):
     global logger
     global thread_started
     global worker_id
-
+    c_external = [] # variable which holds list of contracts recieved from external function
     # Check if worker_id is properly initialized
     if 'worker_id' not in globals() or worker_id is None:
-        logger.error("worker_id is not properly initialized")
+        logger.error("(per_check) # worker_id is not properly initialized")
         worker_id = "undefined"  # Set a default value
 
     thread_started = 1
-    logger.info(f"# Changing thread count protection parameter: {thread_started}")
+    logger.info(f"(per_check) # Changing thread count protection parameter: {thread_started}")
     while True:
-        logger.info("# ---- inner loop ----")
+        logger.info("(per_check) # ---- inner loop ----")
         time.sleep(10)
-        logger.info(f"#periodick check")
-        logger.info(f"#type ws:{type(ws)}")
-        logger.info(f"#thread ID: {threading.get_ident()}")
+        logger.info(f"(per_check) #")
+        logger.info(f"(per_check) # type ws:{type(ws)}")
+        logger.info(f"(per_check) # thread ID: {threading.get_ident()}")
         if websocket_connected(ws):
             if selected_date:
                 check = uw.check_date_validity(selected_date, logger)
-                logger.info(f"# date: {selected_date} is_date_valid: {check}")
+                logger.info(f"(per_check) # date: {selected_date} is_date_valid: {check}")
 
                 if check == False:
                     unsubscribe_from_all(ws)
                     time.sleep(20)
                     selected_date = None
-                    logger.info("# selected_date released")
+                    logger.info("(per_check) # selected_date released")
 
             if selected_date == None:
-                logger.info(f"# selected date {selected_date} {worker_id}")
+                logger.info(f"(per_check) # selected date {selected_date} {worker_id}")
                 selected_date = uw.reserve(storage, worker_id, logger)
-                logger.info(f"# new selected date {selected_date} {worker_id}")
+                logger.info(f"(per_check) # new selected date {selected_date} {worker_id}")
 
             if subscribed_buffer == [] and selected_date != None:
-                c = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
+                c_external = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
                 contracts = []
-                for el_type in c:
-                    for cont in c[el_type]:
+                for el_type in c_external:
+                    for cont in c_external[el_type]:
                         contracts.append(cont)
 
                 subscribe_to_all(ws, contracts)
-                logger.info("subscribed")
+                logger.info("(per_check) # subscribed")
+        
+            if subscribed_buffer != [] and selected_date != None:
+                c_external = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
+                if subscribed_buffer != c_external:
+                    logger.info("(per_check) # List of contracts don't match")
+                    logger.info(f"(per_check) # {c_external}")
+                    logger.info(f"(per_check) # {subscribed_buffer}")
+                    unsubscribe_from_all(ws)
+                    
         else:
-            logger.info(f"# periodick check: websocket not connected")
+            logger.info(f"(per_check) # periodick check: websocket not connected")
         pass    
     pass
 
@@ -167,7 +176,7 @@ def on_open(ws):
     pass
 
 def on_close(ws):
-    logger.debug("connection closed")
+    logger.debug("(on_close) # connection closed")
     global selected_date
     global subscribed_buffer
     global worker_id
@@ -176,19 +185,19 @@ def on_close(ws):
         try:
             # Release the date lock
             uw.release_date(selected_date, worker_id, logger)
-            logger.info(f"Released date lock for date: {selected_date}")
+            logger.info(f"(on_close) # Released date lock for date: {selected_date}")
         except Exception as e:
-            logger.error(f"Failed to release date lock: {e}")
+            logger.error(f"(on_close) # Failed to release date lock: {e}")
 
     selected_date = None
     subscribed_buffer = []
-    logger.info(f"Cleared selected_date and subscribed_buffer: {selected_date}, {subscribed_buffer}")
+    logger.info(f"(on_close) # Cleared selected_date and subscribed_buffer: {selected_date}, {subscribed_buffer}")
 
     # Add a small delay before attempting to reconnect
     time.sleep(5)
 
     # Attempt to reconnect
-    logger.info("Attempting to reconnect...")
+    logger.info("(on_close) # Attempting to reconnect: executing start_ws")
     start_ws(worker_id)
 
 def on_error(ws, error):
@@ -256,13 +265,15 @@ def on_message(ws, message):
                     subscribed_buffer.append(el.split("@")[0])
                     logger.info("#modifying subscribed buffer: {subscribed_buffer}")
 
-    if event_ctr % 100 == 0:
+    if event_ctr % 10 == 0:
         logger.debug(f"messages processed: {event_ctr}")
 
 def start_ws(input_worker_id):
     global thread_started
-    global logger
-    global worker_id
+    worker_id = input_worker_id
+    if thread_started==0:
+        logger = setup_logging(worker_id)
+    logger.info("(start_ws) # launching start_ws")
 
     max_reconnect_attempts = 100
     reconnect_attempts = 0
@@ -270,8 +281,7 @@ def start_ws(input_worker_id):
 
     worker_id = input_worker_id
 
-    if thread_started==0:
-        logger = setup_logging(worker_id)
+
     
     ws = websocket.WebSocketApp("wss://nbstream.binance.com/eoptions/ws",
                                 on_message=on_message,
@@ -281,38 +291,36 @@ def start_ws(input_worker_id):
     ws.on_open = on_open
 
     if thread_started == 0:
-        logger.info("# Starting a thread with periodic check")
+        logger.info("(start_ws) # Starting a thread with periodic check")
         check_thread = threading.Thread(target=periodic_check, args=(ws,))
         check_thread.daemon = True
         check_thread.start()
         thread_started = 1
-        logger.info(f"# Started a thread with periodic check: {thread_started}")
+        logger.info(f"(start_ws) # Started a thread with periodic check: {thread_started}")
 
-    while reconnect_attempts < max_reconnect_attempts:
-        logger.info(f"#connector attempts:{reconnect_attempts} max_attempts:{max_reconnect_attempts}")
+    while True:
+        logger.info(f"(start_ws) # connector attempts:{reconnect_attempts} max_attempts:{max_reconnect_attempts}")
         try:
             ws.run_forever()
-            # If we get here, it means the connection was closed normally
-            logger.info("WebSocket connection closed normally.")
-            reconnect_attempts = 0  # Reset attempts on normal closure
-            break
-            
+            logger.info("(start_ws) # WebSocket connection closed normally.")
+            reconnect_attempts = 0
         except websocket.WebSocketConnectionClosedException:
-            logger.warning("WebSocket connection closed unexpectedly. Attempting to reconnect...")
+            logger.warning("(start_ws) # WebSocket connection closed unexpectedly. Attempting to reconnect...")
         except Exception as e:
-            logger.error(f"Unexpected error occurred: {e}")
-        
-        reconnect_attempts += 1
-        logger.info(f"Reconnection attempt {reconnect_attempts} of {max_reconnect_attempts}")
-        time.sleep(reconnect_delay)
-        reconnect_delay *= 1.2  # Exponential backoff
-        logger.info(f"Timeout delay {reconnect_delay} finished, restarting")
-    
-    if reconnect_attempts == max_reconnect_attempts:
-        logger.critical("Max reconnection attempts reached. Exiting.")
-        # Here you might want to implement some final error handling or notification
+            logger.error(f"(start_ws) # Unexpected error occurred: {e}")
 
-    logger.info("WebSocket connection handler exiting.")
+        reconnect_attempts += 1
+        if reconnect_attempts >= max_reconnect_attempts:
+            logger.critical("(start_ws) # Max reconnection attempts reached. Exiting.")
+            break
+
+        logger.info(f"(start_ws) # Reconnection attempt {reconnect_attempts} of {max_reconnect_attempts}")
+        time.sleep(reconnect_delay)
+        reconnect_delay *= 1.2
+        logger.info(f"(start_ws) # Timeout delay {reconnect_delay} finished, restarting")
+
+    logger.info("(start_ws) # WebSocket connection handler exiting.")
+
 #if "__main__":
 #    start_ws()
 

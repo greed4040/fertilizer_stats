@@ -11,11 +11,12 @@ redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 #worker_id = str(uuid.uuid4())
 worker_id = 1
 
-def select_date(input_storage, worker_id):
+def select_date(input_storage, worker_id, logger):
     """
     Выбирает дату из списка доступных дат в Redis и регистрирует её с уникальным идентификатором worker-а.
     """
     dates = json.loads(redis_client.get(input_storage))
+    logger.info(dates)
     
     for date in dates:
         # Попытка установить флаг для даты в Redis с уникальным идентификатором worker-а
@@ -24,27 +25,33 @@ def select_date(input_storage, worker_id):
             return date
     return None
 
-def reserve(input_storage, worker_id):
+def reserve(input_storage, worker_id, logger):
     while True:
-        selected_date = select_date(input_storage, worker_id)
+        selected_date = select_date(input_storage, worker_id, logger)
         if selected_date:
             return selected_date
         else:
-            print(f"{datetime.datetime.now()} waiting for a free new date")
+            msg = f"waiting for a free new date"
+            logger.info(msg)
             time.sleep(5)
 
-def release_date(date, worker_id):
+def release_date(date, worker_id, logger):
     """
     Освобождает дату в Redis, чтобы её мог выбрать другой worker.
     """
-    redis_client.delete(f'worker:date:{date}')
+    r1=redis_client.delete(f'worker:date:{date}')
+    r2=redis_client.delete(f'worker:{date}')
+    msg1 = f"deleted lock: {r1}"
+    msg2 = f"deleted info: {r2}"
+    logger.info(msg1)
+    logger.info(msg2)
 
-def check_date_validity(date):
+def check_date_validity(date, logger):
     """
     Проверяет актуальность даты в списке активных контрактов в Redis.
     """
     dates = json.loads(redis_client.get('option_contracts_active'))
-    print(dates, type(dates[0]), type(date))
+    logger.info(f"dates: {dates}; type date[0]:{type(dates[0])}; type date:{type(date)}")
     return date in dates
 
 def read_date_from_redis_and_generate_filtered_list_around_current_price(redis_date, contract_prefix = "ETH",  depth=2):
@@ -131,6 +138,7 @@ def read_date_from_redis_and_generate_filtered_list_around_current_price(redis_d
 
     print("\n")
     return { "calls": calls_answer, "puts": puts_answer }
+    #return { "calls": calls, "puts": puts }
 
 """
 # Пример использования

@@ -18,7 +18,7 @@ def on_open(ws):
     params = {
         "method": "SUBSCRIBE",
         "params": [
-            "bnbusdt@trade"  # Modify this to the specific options trading pair
+            "ethusdt@trade"  # Modify this to the specific options trading pair
         ],
         "id": 1
     }

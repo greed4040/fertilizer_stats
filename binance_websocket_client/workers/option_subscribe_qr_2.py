@@ -62,6 +62,7 @@ def unsubscribe_from_all(ws):
         subscribed_buffer.clear()
 
 def subscribe_to_all(ws, contracts):
+    global selected_date
     global subscribed_buffer
     global request_ctr
     
@@ -74,6 +75,7 @@ def subscribe_to_all(ws, contracts):
 
     print("# Sending request to api:", params)
     ws.send(json.dumps(params))
+    redis_client.set(f"worker:{selected_date}", json.dumps(contracts))
     subscribed_buffer = contracts
 
 def periodic_check(ws):
