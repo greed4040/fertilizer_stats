@@ -15,7 +15,9 @@ from scipy.stats import norm
 from scipy.optimize import brentq
 from scipy.optimize import newton
 
+from decimal import Decimal
 import redis
+import mysql.connector
 
 app = Flask(__name__)
 cors = CORS(app, resources={r"/*": {"origins": "*"}})
@@ -178,9 +180,29 @@ def get_all_expiry_dates():
 def get_all_prices():
     print("#get_all_prices request", request, datetime.now())
 
-    resp_str = redis_client.get("calculated_data").decode("utf-8")
-    response = json.loads(resp_str)
+    data_str = redis_client.get("calculated_data").decode("utf-8")
+    data_dict = json.loads(data_str)
+    print(data_dict)
+    response={
+        'data':data_dict,
+        'dt':datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+        'command':'get_all_prices'
+    }
+    return jsonify(response)
+
+@app.route('/get_spot', methods=['GET'])
+def get_spot():
+    print("#get_spot_request", request, datetime.now())
+
+    spot_price = redis_client.get("eth_spot_price").decode("utf-8")
+    response = json.loads(spot_price)
     response["dt"] = datetime.now()
+
+    response={
+        'data':spot_price,
+        'dt':datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+        'command':'get_spot'
+    }
     return jsonify(response)
 
 ###
@@ -295,6 +317,50 @@ def submit_date():
     
     print(answer)
     return jsonify(answer)
+
+
+##
+##
+##
+##
+
+db_config = {
+    'user': 'trading_user',
+    'password': 'Str0ngP@ssw0rd!',
+    'host': 'localhost',
+    'database': 'trading_data'
+}
+
+def get_data_from_db(contract):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    
+    query = f"""
+        SELECT datetime, bid, bid_size, ask, ask_size 
+        FROM {contract[:3]}_prices 
+        WHERE bid > 2000 AND ask > 2000 AND MOD(id, 100) = 0 
+        ORDER BY id DESC
+    """
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    
+    cursor.close()
+    conn.close()
+    
+    return rows
+
+def convert_decimal_to_float(data):
+    for row in data:
+        for key in row:
+            if isinstance(row[key], Decimal):
+                row[key] = float(row[key])
+    return data
+
+@app.route('/get_data/<contract>', methods=['GET'])
+def get_data(contract):
+    data = get_data_from_db(contract)
+    data = convert_decimal_to_float(data)
+    return jsonify(data)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=9019, debug=True, ssl_context=('../../../certs/fullchain.pem', '../../../certs/privkey.pem'))

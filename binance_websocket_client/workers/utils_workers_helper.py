@@ -140,6 +140,54 @@ def read_date_from_redis_and_generate_filtered_list_around_current_price(redis_d
     return { "calls": calls_answer, "puts": puts_answer }
     #return { "calls": calls, "puts": puts }
 
+def read_all_unfiltered_contracts_from_file_by_date(redis_date, contract_prefix = "ETH"):
+    contract_prefix = f"{contract_prefix}USDT"
+
+    path = "/home/greed/services/trading_algo/binance_websocket_client/" 
+    print("#uh redis date:", redis_date, type(redis_date))
+    redis_date = int(redis_date)
+
+    contracts = {}
+    #read ALL contrats from file
+    with open(f"{path}/contracts.json", 'r') as file:  
+        contracts = json.load(file)['optionSymbols']
+    print("###", type(contracts))
+
+    puts=[]
+    calls=[]
+
+    for el in contracts:
+        #print(type(el))
+        #print(el["expiryDate"])
+        #print(spot_symbol)
+        #print(el)
+        #print(type(el['expiryDate']))
+        #print(type(redis_date))
+        #print()
+
+        dates_match = int(el["expiryDate"]) == int(redis_date)
+        #print(el['expiryDate'], dates_match)
+
+        if contract_prefix in el["underlying"] and dates_match:
+            debug_string = f"""
+                {datetime.datetime.now()} 
+                {el["expiryDate"]} 
+                {redis_date} 
+                {el["expiryDate"] == redis_date} 
+                {el["underlying"]}
+                {contract_prefix in el["underlying"]}
+                {el["symbol"]}
+            """
+            #print(debug_string)
+            #print(el["expiryDate"] == redis_date, el["expiryDate"], redis_date)
+            #print(el,"\n\n\n")
+            if el['side']=="PUT": puts.append(el['symbol'])
+            if el['side']=="CALL": calls.append(el['symbol'])
+        #print(el)
+    return {
+        'c':sorted(calls), 'p':sorted(puts) 
+    }
+
 """
 # Пример использования
 # Попытки выбора даты с задержкой

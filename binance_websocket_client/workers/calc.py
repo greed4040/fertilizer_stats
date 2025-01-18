@@ -41,40 +41,50 @@ def redis_prices():
 
     answer = {}
     simple_list = []
-    try:
+    if True:
         for el in contracts:
             contracts_exp_list = contracts[el]
             for item in contracts_exp_list:
                 simple_list.append(item)
-                values = redis_client.get(item).decode("utf-8")
-                dvalues = json.loads(values)
-                itm_list=item.split("-")
                 
-                #print("the values", dvalues, type(dvalues))
-                #print("bids", dvalues["bids"])
-                #print("asks", dvalues["asks"])
-                if len(dvalues["bids"])>0:
-                    dvalues["bids"]=[dvalues["bids"][0]]
-                if len(dvalues["asks"])>0:
-                    dvalues["asks"]=[dvalues["asks"][0]]
-                #print("="*20)
+                if redis_client.get(item) is not None:
+                    values = redis_client.get(item).decode("utf-8")
+                else: 
+                    values = 0
+                print(values)
+                if values!=0:
+                    dvalues = json.loads(values)
+                    itm_list=item.split("-")
+                
+                    #print("the values", dvalues, type(dvalues))
+                    #print("bids", dvalues["bids"])
+                    #print("asks", dvalues["asks"])
+                    if len(dvalues["bids"])>0:
+                        dvalues["bids"]=[dvalues["bids"][0]]
+                    if len(dvalues["asks"])>0:
+                        dvalues["asks"]=[dvalues["asks"][0]]
+                    #print("="*20)
 
-                dvalues["edate"]=itm_list[1]
-                dvalues["strk"]=itm_list[2]
-                #print(dvalues, el, "\n")
+                    dvalues["edate"]=itm_list[1]
+                    dvalues["strk"]=itm_list[2]
+                    #print(dvalues, el, "\n")
+                    
+                    answer[item]=dvalues
                 
-                answer[item]=dvalues
                 
-                
-    except Exception as e:
-        print(e)
+    #except Exception as e:
+    #    print(e)
     return answer, simple_list
 
 def redis_contracts():
     answer = {}
     dates = redis_dates()
     for el in json.loads(dates):
-        contracts = redis_client.get(f"worker:{el}").decode("utf-8")
+        contracts = ""
+        try:
+            contracts = redis_client.get(f"worker:{el}").decode("utf-8")
+        except Exception as e:
+            print(e)
 
         contracts_dict = json.loads(contracts)
         #print("supposedly dict:", type(contracts_dict), contracts_dict)
@@ -176,7 +186,7 @@ def calc_all():
             'generated': str(datetime.now())
         }
 
-    values = json.dumps(response)
+    values = json.dumps(iv)
     redis_client.set("calculated_data", values)
 
 while True:

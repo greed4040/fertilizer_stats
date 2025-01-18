@@ -108,7 +108,7 @@ def subscribe_to_all(ws, contracts):
         "id": request_ctr
     }
 
-    logger.info("# Sending request to api:", params)
+    logger.info("(subscribe_to_all) # Sending request to api:", params)
     ws.send(json.dumps(params))
     redis_client.set(f"worker:{selected_date}", json.dumps(contracts))
     subscribed_buffer = contracts
@@ -130,49 +130,78 @@ def periodic_check(ws):
         logger.info("(per_check) # ---- inner loop ----")
         time.sleep(10)
         logger.info(f"(per_check) #")
-        logger.info(f"(per_check) # type ws:{type(ws)}")
+        logger.info(f"(per_check) # type ws:{type(ws)}, connected:{websocket_connected(ws)}")
         logger.info(f"(per_check) # thread ID: {threading.get_ident()}")
+        logger.info(f"(per_check) # {selected_date}")
+        logger.info(f"(per_check) # {subscribed_buffer}")
         if websocket_connected(ws):
+            logger.info("(per_check) # Websocket is connected")
             if selected_date:
-                check = uw.check_date_validity(selected_date, logger)
-                logger.info(f"(per_check) # date: {selected_date} is_date_valid: {check}")
+                try:
+                    check = uw.check_date_validity(selected_date, logger)
+                    logger.info(f"(per_check) # date: {selected_date} is_date_valid: {check}")
 
-                if check == False:
-                    unsubscribe_from_all(ws)
-                    time.sleep(20)
-                    selected_date = None
-                    logger.info("(per_check) # selected_date released")
+                    if not check:
+                        logger.info("(per_check) # Date is not valid, unsubscribing")
+                        unsubscribe_from_all(ws)
+                        time.sleep(20)
+                        selected_date = None
+                        logger.info("(per_check) # selected_date released")
+                except Exception as e:
+                    logger.error(f"(per_check) # Exception while checking date validity: {e}")
 
             if selected_date == None:
-                logger.info(f"(per_check) # selected date {selected_date} {worker_id}")
-                selected_date = uw.reserve(storage, worker_id, logger)
-                logger.info(f"(per_check) # new selected date {selected_date} {worker_id}")
+                logger.info("(per_check) # Date is none. Attempting to reserve a new date")
+                try:
+                    logger.info(f"(per_check) # not yet selected date {selected_date} {worker_id}")
+                    selected_date = uw.reserve(storage, worker_id, logger)
+                    logger.info(f"(per_check) # new selected date {selected_date} {worker_id}")
+                except Exception as e:
+                    logger.error(f"(per_check) # Exception while reserving date: {e}")
 
             if subscribed_buffer == [] and selected_date != None:
-                c_external = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
-                contracts = []
-                for el_type in c_external:
-                    for cont in c_external[el_type]:
-                        contracts.append(cont)
+                logger.info("(per_check) # Attempting to subscribe to contracts")
+                try:
+                    #filtered
+                    #c_external = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
 
-                subscribe_to_all(ws, contracts)
-                logger.info("(per_check) # subscribed")
+                    #unfiltered
+                    c_external = uw.read_all_unfiltered_contracts_from_file_by_date(selected_date)
+
+                    contracts = [cont for el_type in c_external for cont in c_external[el_type]]
+
+                    subscribe_to_all(ws, contracts)
+                    logger.info("(per_check) # Subscribed to contracts")
+
+                except Exception as e:
+                    logger.info(f"(per_check) # exc3 {e}")
         
             if subscribed_buffer != [] and selected_date != None:
-                c_external = uw.read_date_from_redis_and_generate_filtered_list_around_current_price(selected_date)
-                if subscribed_buffer != c_external:
-                    logger.info("(per_check) # List of contracts don't match")
-                    logger.info(f"(per_check) # {c_external}")
-                    logger.info(f"(per_check) # {subscribed_buffer}")
-                    unsubscribe_from_all(ws)
-                    
+                logger.info("(per_check) # Checking if subscribed contracts match current list")
+                try:
+                    c_external = uw.read_all_unfiltered_contracts_from_file_by_date(selected_date)
+                    sorted_contracts_in_file=[]
+                    for el in c_external:
+                        for cont in c_external[el]:
+                            sorted_contracts_in_file.append(cont)
+                    sorted_contracts_in_file = sorted(sorted_contracts_in_file)
+                    sorted_contracts_in_buff = sorted(subscribed_buffer)
+                    if sorted_contracts_in_file != sorted_contracts_in_buff:
+                        logger.info("(per_check) # List of contracts don't match")
+                        logger.info(f"(per_check) # extr: {sorted_contracts_in_file}")
+                        logger.info(f"(per_check) # subs: {sorted_contracts_in_buff}")
+                        unsubscribe_from_all(ws)
+                    else:
+                        logger.info("(per_check) # Contract lists match")
+                except Exception as e:
+                    logger.error(f"(per_check) # Exception while checking contract match: {e}")
         else:
-            logger.info(f"(per_check) # periodick check: websocket not connected")
+            logger.warning("(per_check) # Websocket not connected")
         pass    
     pass
 
 def on_open(ws):
-    logger.debug("opened")
+    logger.debug("(on_open) # opened")
     pass
 
 def on_close(ws):
@@ -201,7 +230,7 @@ def on_close(ws):
     start_ws(worker_id)
 
 def on_error(ws, error):
-    logger.error(error)
+    logger.error("(on error) # error: {error}")
     pass
 
 def on_ping(ws, message):
@@ -265,7 +294,7 @@ def on_message(ws, message):
                     subscribed_buffer.append(el.split("@")[0])
                     logger.info("#modifying subscribed buffer: {subscribed_buffer}")
 
-    if event_ctr % 10 == 0:
+    if event_ctr % 100 == 0:
         logger.debug(f"messages processed: {event_ctr}")
 
 def start_ws(input_worker_id):

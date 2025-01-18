@@ -4,9 +4,14 @@ import mysql.connector
 import time
 import datetime
 
+import redis
+# Connect to Redis
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+
 global ctr
 global buffer
 global request_ctr
+global contract
 ctr = 0
 request_ctr = 10
 buffer = {"b":0, "a":0}
@@ -20,15 +25,17 @@ db_config = {
 
 conn = mysql.connector.connect(**db_config)
 cursor = conn.cursor()
+contract = ""
 
-
-def insert_msg(bid, bid_size, ask, ask_size):
+def insert_msg(inst, bid, bid_size, ask, ask_size):
     # Insert data into MySQL
-# Insert data into MySQL
-    insert_query = """
-        INSERT INTO eth_prices (datetime, bid, bid_size, ask, ask_size)
+    print("insert_msg called with:", inst, bid, bid_size, ask, ask_size)
+    # Insert data into MySQL
+    insert_query = f"""
+        INSERT INTO {inst[:3]}_prices (datetime, bid, bid_size, ask, ask_size)
         VALUES (NOW(), %s, %s, %s, %s)
         """
+    print(insert_query)
     try:
         cursor.execute(insert_query, (bid, bid_size, ask, ask_size))
         conn.commit()
@@ -38,22 +45,33 @@ def insert_msg(bid, bid_size, ask, ask_size):
 
 def on_message(ws, message):
     global ctr
+    global contract
+    global buffer
     ctr += 1
+    print(f"Message received: {ctr}")
+
     data = json.loads(message)
-    #print(data, type(data), "asks" in data, "bids" in data)
+    print("Parsed data:", data)
+
     if 'bids' in data and 'asks' in data:
-        bid = data['bids'][0][0]
-        bid_size = data['bids'][0][1]
-        ask = data['asks'][0][0]
-        ask_size = data['asks'][0][1]
-        #print(buffer)
-        if buffer["b"]!=bid or buffer["a"]!=ask:
-            buffer["b"]=bid
-            buffer["a"]=ask
-            insert_msg(bid, bid_size, ask, ask_size)
-            ctr += 1
-    if ctr<5 or ctr % 10 == 0:
+        print("Data contains bids and asks")
+        bid = float(data['bids'][0][0])
+        bid_size = float(data['bids'][0][1])
+        ask = float(data['asks'][0][0])
+        ask_size = float(data['asks'][0][1])
+
+        if buffer["b"] != bid or buffer["a"] != ask:
+            print("Bid or ask changed")
+            buffer["b"] = bid
+            buffer["a"] = ask
+            insert_msg(contract, bid, bid_size, ask, ask_size)
+            redis_client.set(f"{contract}_spot_price", json.dumps({"bid": bid, "bid_size": bid_size, "ask": ask, "ask_size": ask_size}))
+    
+    if ctr < 5 or ctr % 10 == 0:
         print(datetime.datetime.now(), ctr, message)
+        print(buffer)
+        print("-")
+
 
 def on_error(ws, error):
     print("Error:")
@@ -79,17 +97,20 @@ def on_ping(ws, message):
     request_ctr += 1
 
 def subscribe_to_stream(ws):
+    global cobtract
     params = {
         "method": "SUBSCRIBE",
         "params": [
-            "ethusdt@depth5"
+            f"{contract}@depth5"
         ],
         "id": 1
     }
     ws.send(json.dumps(params))
-    print("Subscribed to ETH/USDT@depth5 stream")
+    print(f"Subscribed to {contract}@depth5 stream")
 
-def run_websocket():
+def run_websocket(input_instrument):
+    global contract
+    contract = input_instrument
     while True:
         try:
             print("Connecting to WebSocket...")
@@ -105,6 +126,6 @@ def run_websocket():
         print("Reconnecting in 5 seconds...")
         time.sleep(5)
 
-if __name__ == "__main__":
-    websocket.enableTrace(True)
-    run_websocket()
+#if __name__ == "__main__":
+#    websocket.enableTrace(True)
+#    run_websocket()
